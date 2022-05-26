@@ -1,0 +1,18 @@
+version: '3'
+
+services:
+  datomicdb:
+    build: ./db
+    ports:
+      - "4336:4336"
+      - "4335:4335"
+      - "4334:4334" 
+    volumes:
+      - "/data"
+  api:
+    build: ./api
+    ports: 
+      - "3001:3001"
+    links:
+      - datomicdb
+
