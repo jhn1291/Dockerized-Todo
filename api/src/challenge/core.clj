@@ -8,10 +8,6 @@
             [compojure.core :as c :refer [GET POST]]
             [compojure.route :as route]
             [challenge.datomic :as cd]
-            [datomic.api :as d]
-            [hiccup.core :as h]
-            [hiccup.form :refer :all]
-            [clojure.pprint :as pprint]
             [challenge.util :as util]
             [challenge.views.home :as home]
             [challenge.views.todo :as todo]
@@ -33,13 +29,6 @@
   [cookie]
   (swap! server update-in [:user-sessions] dissoc cookie))
 
-(defn make-user
-  [email]
-  (-> (cd/transact [{:user/email email}])
-      :tempids
-      first
-      val))
-
 (defn make-todo
   [user params]
   (cd/transact [(update user :user/todos #(conj % (util/shape-todo-new params :todo.state/incomplete)))]))
@@ -60,21 +49,23 @@
 
 
 (c/defroutes routes
+
   (GET "/" [] (fn [req]
                 (if (logged-in? req)
                     (redirect "/todo")
                     (home/home req))))
+
   (POST "/login" req (fn [req]
-                       (if-let [email (:email (:params req))]
-                         (do
-                           (add-server-session! (get-client-session req) email)
-                           (if-let [userid (cd/query-user email)]
-                             (add-server-session! (get-client-session req) userid)
-                             (add-server-session! (get-client-session req) (make-user email)))
-                           (redirect "/todo")))))
+                       (let [email (:email (:params req))]
+                         (if-let [userid (cd/query-user email)]
+                           (add-server-session! (get-client-session req) userid)
+                           (add-server-session! (get-client-session req) (cd/make-user email)))
+                         (redirect "/todo"))))
+
   (POST "/logout" req (fn [req]
                         (remove-server-session! (get-client-session req))
                         (redirect "/")))
+
   (POST "/add-todo" req (fn [req]
                           (util/if-let* [user-id (logged-in? req)
                                          user (cd/pull-user user-id)]
@@ -82,30 +73,35 @@
                                           (make-todo user (:params req))
                                           (redirect "/todo"))
                               (redirect "/todo"))))
+
   (POST "/update-todo" req (fn [req]
                              (util/if-let* [user-id (logged-in? req)
                                             user (cd/pull-user user-id)]
-                                           (let [todo (-> (util/keywordize-params (:params req))
-                                                          util/str-dbid->long-dbid
-                                                          util/shape-todo-update)]
-                                                 (cd/transact [todo])
-                                                 (redirect "/todo"))
-                             (redirect "/todo"))))
+                                   (let [todo (-> (util/keywordize-params (:params req))
+                                                  util/str-dbid->long-dbid
+                                                  util/shape-todo-update)]
+                                     (cd/transact [todo])
+                                     (redirect "/todo"))
+                                   (redirect "/todo"))))
+
   (GET "/burndown" req (fn [req]
                          (util/if-let* [user-id (logged-in? req)
                                         user (cd/pull-user user-id)]
-                                       (bd-chart/burndown-chart (:user/todos user))
-                                       (redirect "/"))))
+                               (bd-chart/burndown-chart (:user/todos user))
+                               (redirect "/"))))
+
   (GET "/completion-chart" req (fn [req]
                                  (util/if-let* [user-id (logged-in? req)
                                            user (cd/pull-user user-id)
                                            grouped-todos (group-by #(-> % :todo/state :db/ident) (:user/todos user))]
-                                   (c-chart/completion-chart grouped-todos)
-                                   (redirect "/"))))
+                                       (c-chart/completion-chart grouped-todos)
+                                       (redirect "/"))))
+
   (GET "/todo" req (fn [req]
                      (if-let [user-id (logged-in? req)]
                        (todo/todo (cd/pull-user user-id))
                        (redirect "/"))))
+
   (route/not-found {:status 404
                     :body "Not found."
                     :headers {"Content-Type" "text/plain"}}))
@@ -114,8 +110,7 @@
              wrap-keyword-params
              wrap-params
              (wrap-cookies {:max-age 3600})
-             wrap-session
-             ))
+             wrap-session))
 
 (defn start-server []
   (cd/import-all-schemas)

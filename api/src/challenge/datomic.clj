@@ -86,3 +86,10 @@
 (defn transact
   [txdata]
   @(d/transact @conn txdata))
+
+(defn make-user
+  [email]
+  (-> (transact [{:user/email email}])
+      :tempids
+      first
+      val))
